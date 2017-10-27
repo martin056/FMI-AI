@@ -6,8 +6,30 @@ g(x) - the steps I've made
 h1(x) - the sum of how many numbers are not on their place
 h2(x) - Manhattan distance with n = 1. We will use this!
 
-hevristics(x) = g(x) + h2(x)
+heuristic(x) = g(x) + h2(x)
 """
+
+
+class Node:
+    def __init__(self, grid, heuristic, parent):
+        self.grid = grid
+        self.heuristic = heuristic
+        self.parent = parent
+
+        self.path_heuristic = self.calculate_path_heuristic()
+
+    def __str__(self):
+        return '\n'.join([str(row) for row in self.grid])
+
+    def calculate_path_heuristic(self):
+        result = self.heuristic
+        node = self.parent
+
+        while node:
+            result += node.heuristic
+            node = node.parent
+
+        return result
 
 
 class Table:
@@ -18,11 +40,16 @@ class Table:
         self.max_element_value = n ** 2
         self.final_grid = self.generate_final_grid()
         self.grid = self.generate_random_grid()
+        # self.grid = [
+        #     [1,0,2],
+        #     [3,4,5],
+        #     [6,8,7]
+        # ]
 
         self.distance = 0
-        self.history = []
-        self.fixed_elements = set()
-        self.banned_move = ''
+        self.visited = []
+        self.nodes = []
+        self.last_node = None
 
     def generate_final_grid(self):
         result = []
@@ -53,11 +80,8 @@ class Table:
     def find_perfect_place(self, number):
         return self.find_number(number, self.final_grid)
 
-    def find_current_place(self, number):
-        return self.find_number(number, self.grid)
-
     def find_moving_element(self):
-        return self.find_current_place(self.MOVING_ELEMENT)
+        return self.find_number(self.MOVING_ELEMENT, self.grid)
 
     def move(self):
         def move_left():
@@ -66,7 +90,7 @@ class Table:
 
             if step >= 0:
                 target_number = self.grid[row][step]
-                return target_number not in self.fixed_elements and target_number
+                return target_number
 
             return False
 
@@ -76,7 +100,7 @@ class Table:
 
             if step < self.given_number:
                 target_number = self.grid[row][step]
-                return target_number not in self.fixed_elements and target_number
+                return target_number
 
             return False
 
@@ -86,7 +110,7 @@ class Table:
 
             if step >= 0:
                 target_number = self.grid[step][col]
-                return target_number not in self.fixed_elements and target_number
+                return target_number
 
             return False
 
@@ -96,7 +120,7 @@ class Table:
 
             if step < self.given_number:
                 target_number = self.grid[step][col]
-                return target_number not in self.fixed_elements and target_number
+                return target_number
 
             return False
 
@@ -112,109 +136,84 @@ class Table:
     def update_distance(self):
         self.distance += 1
 
-    def manhattan(self, number):
-        perfect_place = self.find_perfect_place(number)
-        current_place = self.find_current_place(number)
+    def manhattan(self, grid):
+        result = 0
 
-        if perfect_place != current_place:
-            x_to_target = abs(perfect_place[0] - current_place[0])
-            y_to_target = abs(perfect_place[1] - current_place[1])
+        for number in range(0, self.max_element_value):
+            perfect_place = self.find_perfect_place(number)
+            place_in_grid = self.find_number(number, grid)
 
-            return x_to_target + y_to_target
+            x_to_target = abs(perfect_place[0] - place_in_grid[0])
+            y_to_target = abs(perfect_place[1] - place_in_grid[1])
 
-        return 0
+            result += (x_to_target + y_to_target)
+
+        return result
+
+    def heuristic(self, grid):
+        return self.manhattan(grid)
 
     def reorder_grid(self, number):
         """
         Swaps the moving element (0) with the `number`.
-        Returns the grid before the manipulation.
         """
-        old_grid = deepcopy(self.grid)
+        grid = deepcopy(self.grid)
 
-        target_row, target_col = self.find_current_place(number)
+        target_row, target_col = self.find_number(number, grid)
         zero_row, zero_col = self.find_moving_element()
 
-        self.grid[target_row][target_col] = 0
-        self.grid[zero_row][zero_col] = number
+        grid[target_row][target_col] = self.MOVING_ELEMENT
+        grid[zero_row][zero_col] = number
 
-        return old_grid
+        return grid
 
-    # def ban_next_move(self, last_move):
-    #     """
-    #     If we go to `left` on N move, we don't want to go to `right` on N+1 move.
+    def get_best_possible_node(self):
+        nodes = set(self.nodes) - set(self.visited)
+        sorted_nodes = sorted(list(nodes), key=lambda node: node.path_heuristic)
 
-    #     This prevents infinite reccursion when we have equal hevristics.
-    #     """
-    #     opposite_moves = {
-    #         'left': 'right',
-    #         'right': 'left',
-    #         'up': 'down',
-    #         'down': 'up'
-    #     }
+        return sorted_nodes[0]
 
-    #     self.banned_move = opposite_moves[last_move]
-
-    def calculate_next_node(self):
-        hevristics = []
-
+    def extend_nodes(self):
         possible_moves = self.move()
 
         for move, target_number in possible_moves.items():
             if target_number:
-                manhattan_distance = self.manhattan(target_number)
+                grid = self.reorder_grid(target_number)
+                grid_heuristic = self.heuristic(grid)
+                parent = self.visited[-1]
 
-                if manhattan_distance == 0:
-                    """
-                    If the element is already on its place - don't touch it.
-                    """
-                    self.fixed_elements.add(target_number)
+                node = Node(grid=grid,
+                            heuristic=grid_heuristic,
+                            parent=parent)
 
-                else:
-                    hevristics.append((target_number,
-                                       self.distance + manhattan_distance,
-                                       move))
+                self.nodes.append(node)
 
-        random.shuffle(hevristics)
+    def choose_next_node(self):
+        self.extend_nodes()
 
-        best_hevristic_val = min([val for _, val, _ in hevristics])\
+        best_node = self.get_best_possible_node()
 
-        import ipdb; ipdb.set_trace()
+        while best_node in self.visited:
+            self.nodes.remove(best_node)
+            best_node = self.get_best_possible_node()
 
-        for number, hevristic_val, move in hevristics:
-            if hevristic_val == best_hevristic_val:
-                old_grid = self.reorder_grid(number)
+        self.grid = best_node.grid
+        self.visited.append(best_node)
 
-                checkpoint = "{}\nNext move: {}".format(old_grid, move)
-                self.history.append(checkpoint)
+    def play_sliding_blocks(self):
+        # Add root of the tree
+        intiial_node = Node(grid=self.grid,
+                            heuristic=self.heuristic(self.grid),
+                            parent=None)
 
-                # self.ban_next_move(last_move=move)
-
-                """
-                Stop the loop on the first occured possition.
-
-                If we don't the algorithm will swap all elements with equal
-                hevristics with the moving element (0).
-                """
-                break
-
-    def add_initially_fixed_elements(self):
-        """
-        If there are elements that are on there place
-        in the initially generated grid, we add them to the
-        `fixed_elements`
-        """
-        for number in range(1, self.max_element_value):
-            if self.manhattan(number) == 0:
-                self.fixed_elements.add(number)
-
-    def play(self):
-        self.add_initially_fixed_elements()
+        self.visited.append(intiial_node)
+        self.nodes.append(intiial_node)
 
         while self.grid != self.final_grid:
-            self.calculate_next_node()
+            self.choose_next_node()
             self.update_distance()
 
 
 if __name__ == '__main__':
     table = Table(3)
-    table.play()
+    table.play_sliding_blocks()
