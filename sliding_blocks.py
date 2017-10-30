@@ -39,10 +39,18 @@ class SlidingBlocks:
 
     def is_solvable(self, grid):
         moving_element_manhattan = self.manhattan(self.MOVING_ELEMENT, grid)
-        """
-        TODO: count permutations
-        """
-        return True
+
+        elements = []
+        permutations = 0
+        for row in grid:
+            elements.extend(row)
+
+        for i in elements:
+            for j in elements[1:]:
+                if i < j:
+                    permutations += 1
+
+        return (moving_element_manhattan + permutations) % 2 == 0
 
     def generate_final_grid(self):
         result = []
