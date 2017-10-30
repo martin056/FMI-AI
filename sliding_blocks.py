@@ -1,16 +1,31 @@
 import random
 from copy import deepcopy
 
-"""
-g(x) - the steps I've made
-h1(x) - the sum of how many numbers are not on their place
-h2(x) - Manhattan distance with n = 1. We will use this!
 
-hevristics(x) = g(x) + h2(x)
-"""
+class Node:
+    def __init__(self, grid, grid_score, parent):
+        self.grid = grid
+        self.grid_score = grid_score
+        self.parent = parent
+
+        self.distance = self.calculate_distance()
+
+    @property
+    def heuristic(self):
+        return self.grid_score
+
+    def calculate_distance(self):
+        parent = self.parent
+        counter = 0
+
+        while parent is not None:
+            counter += 1
+            parent = parent.parent
+
+        return counter
 
 
-class Table:
+class SlidingBlocks:
     MOVING_ELEMENT = 0
 
     def __init__(self, n):
@@ -19,10 +34,23 @@ class Table:
         self.final_grid = self.generate_final_grid()
         self.grid = self.generate_random_grid()
 
-        self.distance = 0
-        self.history = []
-        self.fixed_elements = set()
-        self.banned_move = ''
+        self.visited = []
+        self.nodes = []
+
+    def is_solvable(self, grid):
+        moving_element_manhattan = self.manhattan(self.MOVING_ELEMENT, grid)
+
+        elements = []
+        permutations = 0
+        for row in grid:
+            elements.extend(row)
+
+        for i in elements:
+            for j in elements[1:]:
+                if i < j:
+                    permutations += 1
+
+        return (moving_element_manhattan + permutations) % 2 != 0
 
     def generate_final_grid(self):
         result = []
@@ -37,11 +65,17 @@ class Table:
     def generate_random_grid(self):
         result = []
         numbers = list(range(self.max_element_value))
+
         random.shuffle(numbers)
 
         for _ in range(1, self.given_number + 1):
             result.append(numbers[:self.given_number])
             numbers = numbers[self.given_number:]
+
+        print("is solvable: ", self.is_solvable(result))
+
+        if not self.is_solvable(result):
+            self.generate_random_grid()
 
         return result
 
@@ -53,11 +87,8 @@ class Table:
     def find_perfect_place(self, number):
         return self.find_number(number, self.final_grid)
 
-    def find_current_place(self, number):
-        return self.find_number(number, self.grid)
-
     def find_moving_element(self):
-        return self.find_current_place(self.MOVING_ELEMENT)
+        return self.find_number(self.MOVING_ELEMENT, self.grid)
 
     def move(self):
         def move_left():
@@ -66,7 +97,7 @@ class Table:
 
             if step >= 0:
                 target_number = self.grid[row][step]
-                return target_number not in self.fixed_elements and target_number
+                return target_number
 
             return False
 
@@ -76,7 +107,7 @@ class Table:
 
             if step < self.given_number:
                 target_number = self.grid[row][step]
-                return target_number not in self.fixed_elements and target_number
+                return target_number
 
             return False
 
@@ -86,7 +117,7 @@ class Table:
 
             if step >= 0:
                 target_number = self.grid[step][col]
-                return target_number not in self.fixed_elements and target_number
+                return target_number
 
             return False
 
@@ -96,7 +127,7 @@ class Table:
 
             if step < self.given_number:
                 target_number = self.grid[step][col]
-                return target_number not in self.fixed_elements and target_number
+                return target_number
 
             return False
 
@@ -109,112 +140,95 @@ class Table:
 
         return next_states
 
-    def update_distance(self):
-        self.distance += 1
+    def get_grid_score(self, grid):
+        result = 0
 
-    def manhattan(self, number):
+        for number in range(0, self.max_element_value):
+            result += self.manhattan(number, grid)
+
+        return result
+
+    def manhattan(self, number, grid):
         perfect_place = self.find_perfect_place(number)
-        current_place = self.find_current_place(number)
+        place_in_grid = self.find_number(number, grid)
 
-        if perfect_place != current_place:
-            x_to_target = abs(perfect_place[0] - current_place[0])
-            y_to_target = abs(perfect_place[1] - current_place[1])
+        x_to_target = abs(perfect_place[0] - place_in_grid[0])
+        y_to_target = abs(perfect_place[1] - place_in_grid[1])
 
-            return x_to_target + y_to_target
-
-        return 0
+        return (x_to_target + y_to_target)
 
     def reorder_grid(self, number):
         """
         Swaps the moving element (0) with the `number`.
-        Returns the grid before the manipulation.
         """
-        old_grid = deepcopy(self.grid)
+        grid = deepcopy(self.grid)
 
-        target_row, target_col = self.find_current_place(number)
+        target_row, target_col = self.find_number(number, grid)
         zero_row, zero_col = self.find_moving_element()
 
-        self.grid[target_row][target_col] = 0
-        self.grid[zero_row][zero_col] = number
+        grid[target_row][target_col] = self.MOVING_ELEMENT
+        grid[zero_row][zero_col] = number
 
-        return old_grid
+        return grid
 
-    # def ban_next_move(self, last_move):
-    #     """
-    #     If we go to `left` on N move, we don't want to go to `right` on N+1 move.
+    def get_best_possible_node(self):
+        for node in self.nodes:
+            if node.grid in [n.grid for n in self.visited]:
+                self.nodes.remove(node)
 
-    #     This prevents infinite reccursion when we have equal hevristics.
-    #     """
-    #     opposite_moves = {
-    #         'left': 'right',
-    #         'right': 'left',
-    #         'up': 'down',
-    #         'down': 'up'
-    #     }
+        sorted_nodes = sorted(self.nodes, key=lambda node: node.heuristic)
 
-    #     self.banned_move = opposite_moves[last_move]
+        return sorted_nodes[0]
 
-    def calculate_next_node(self):
-        hevristics = []
-
+    def extend_nodes(self):
         possible_moves = self.move()
 
         for move, target_number in possible_moves.items():
             if target_number:
-                manhattan_distance = self.manhattan(target_number)
+                grid = self.reorder_grid(target_number)
 
-                if manhattan_distance == 0:
-                    """
-                    If the element is already on its place - don't touch it.
-                    """
-                    self.fixed_elements.add(target_number)
+                grid_score = self.get_grid_score(grid)
+                parent = self.visited[-1]
 
-                else:
-                    hevristics.append((target_number,
-                                       self.distance + manhattan_distance,
-                                       move))
+                node = Node(grid=grid,
+                            grid_score=grid_score,
+                            parent=parent)
 
-        random.shuffle(hevristics)
+                if node.grid not in [n.grid for n in self.visited]:
+                    self.nodes.append(node)
 
-        best_hevristic_val = min([val for _, val, _ in hevristics])\
+    def choose_next_node(self):
+        best_node = self.get_best_possible_node()
 
-        import ipdb; ipdb.set_trace()
-
-        for number, hevristic_val, move in hevristics:
-            if hevristic_val == best_hevristic_val:
-                old_grid = self.reorder_grid(number)
-
-                checkpoint = "{}\nNext move: {}".format(old_grid, move)
-                self.history.append(checkpoint)
-
-                # self.ban_next_move(last_move=move)
-
-                """
-                Stop the loop on the first occured possition.
-
-                If we don't the algorithm will swap all elements with equal
-                hevristics with the moving element (0).
-                """
-                break
-
-    def add_initially_fixed_elements(self):
-        """
-        If there are elements that are on there place
-        in the initially generated grid, we add them to the
-        `fixed_elements`
-        """
-        for number in range(1, self.max_element_value):
-            if self.manhattan(number) == 0:
-                self.fixed_elements.add(number)
+        self.visited.append(best_node)
+        self.grid = best_node.grid
 
     def play(self):
-        self.add_initially_fixed_elements()
+        # Add root of the tree
+        intiial_node = Node(grid=self.grid,
+                            grid_score=self.get_grid_score(self.grid),
+                            parent=None)
+
+        self.visited.append(intiial_node)
+        self.nodes.append(intiial_node)
 
         while self.grid != self.final_grid:
-            self.calculate_next_node()
-            self.update_distance()
+            self.extend_nodes()
+            self.choose_next_node()
+
+    def get_result(self):
+        winner = self.visited[-1]
+        parent = winner.parent
+        print("S O L V E D")
+        print(winner.grid)
+        while parent is not None:
+            print(parent.grid)
+            parent = parent.parent
 
 
 if __name__ == '__main__':
-    table = Table(3)
-    table.play()
+    n = input("Choose the size of the grid (NxN): ")
+
+    game = SlidingBlocks(int(n))
+    game.play()
+    game.get_result()
