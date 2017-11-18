@@ -1,7 +1,6 @@
 import random
 import math
 from copy import deepcopy
-from collections import OrderedDict
 
 
 MAX_PLAYER = 'max'
@@ -30,6 +29,15 @@ class Node:
                     result += 1
 
         return result
+
+    def add_children(self):
+        children_player = opposite_player(self.player)
+        children = [
+            Node(grid=move, player=children_player)
+            for move in get_possible_moves(grid=self.grid, player=children_player)
+        ]
+
+        self.children = children
 
     def check_for_finish(self, symbol):
         for i, row in enumerate(self.grid):
@@ -67,16 +75,16 @@ class Node:
 
     def heusristics(self):
         empty_boxes = self.count_empty_boxes()
-        play = 0
 
         if self.player == MAX_PLAYER:
             play = self.check_for_win()
+            value = empty_boxes + play
 
         if self.player == MIN_PLAYER:
             play = self.check_for_loose()
+            value = -(empty_boxes + play)
 
-        # If the game is not finished, the `play` value stays `0`
-        return empty_boxes + int(play)
+        return value
 
 
 def generate_empty_grid():
@@ -90,84 +98,63 @@ def generate_empty_grid():
 
 
 def generate_grid_from_file(file_name):
-    pass
+    with open(file_name, 'r') as f:
+        elements = list(f.read().replace('\n', ''))
+
+        for i in range(len(elements)):
+            if elements[i] == ' ':
+                elements[i] = None
+
+        grid = []
+
+        for i in range(3):
+            grid.append(elements[:3])
+            elements = elements[3:]
+
+    return grid
 
 
 def opposite_player(player):
     return player == MAX_PLAYER and MIN_PLAYER or MAX_PLAYER
 
 
-def generate_game_tree(start_grid):
-    def get_possible_moves(grid, player):
-        moves = []
+def get_possible_moves(grid, player):
+    moves = []
 
-        symbol = player == MAX_PLAYER and MAX_PLAYER_SYMBOL or MIN_PLAYER_SYMBOL
+    symbol = player == MAX_PLAYER and MAX_PLAYER_SYMBOL or MIN_PLAYER_SYMBOL
 
-        for i in range(3):
-            for j in range(3):
-                if grid[i][j] is None:
-                    grid_copy = deepcopy(grid)
+    for i in range(3):
+        for j in range(3):
+            if grid[i][j] is None:
+                grid_copy = deepcopy(grid)
 
-                    grid_copy[i][j] = symbol
-                    moves.append(grid_copy)
+                grid_copy[i][j] = symbol
+                moves.append(grid_copy)
 
-        return moves
-
-    # tree = {}
-    player = MAX_PLAYER
-    grid = start_grid
-
-    root = Node(player=player, grid=grid)
-    nodes = [root]
-    visited_grids = []
-
-    # i = 0
-    while True:
-        # tree[i] = nodes
-
-        next_nodes = []
-
-        for node in nodes:
-            visited_grids.append(node.grid)
-
-            next_player = opposite_player(node.player)
-            moves = get_possible_moves(grid=node.grid, player=next_player)
-
-            for move in moves:
-                if move not in visited_grids:
-                    child = Node(grid=move, player=next_player)
-                    node.children.append(child)
-
-                    next_nodes.append(child)
-
-        if len(next_nodes) == 0:
-            # i = -1  # break
-            break
-        else:
-            nodes = next_nodes
-
-    # return OrderedDict(sorted(tree.items(), key=lambda key_value_tuple: key_value_tuple[0]))
-    return root
+    return moves
 
 
 def win_the_game(start_grid):
-    print('Generating solutions tree...')
-    root = generate_game_tree(start_grid)
+    solution = []
 
-    def alpha_beta_pruning(node, alpha, beta, player):
+    def alpha_beta_pruning(node, alpha, beta):
         # Source: https://en.wikipedia.org/wiki/Alpha%E2%80%93beta_pruning#Pseudocode
-        infinity = math.inf
-        import ipdb; ipdb.set_trace()
+        node.add_children()
+
+        # import time
+        # time.sleep(1)
+        # print('\n'.join([str(row) for row in node.grid]), '\n')
 
         if node.is_terminal:
+            solution.append(node)
             return node.heusristics()
 
-        if player == MAX_PLAYER:
+        infinity = math.inf
+        if node.player == MAX_PLAYER:
             val = -infinity
 
             for child in node.children:
-                import ipdb; ipdb.set_trace()
-                val = max(val, alpha_beta_pruning(child, alpha, beta, MIN_PLAYER))
+                val = max(val, alpha_beta_pruning(child, alpha, beta))
                 alpha = max(alpha, val)
 
                 if beta <= alpha:
@@ -175,12 +162,11 @@ def win_the_game(start_grid):
 
             return val
 
-        if player == MIN_PLAYER:
+        if node.player == MIN_PLAYER:
             val = infinity
 
             for child in node.children:
-                import ipdb; ipdb.set_trace()
-                val = min(val, alpha_beta_pruning(child, alpha, beta, MAX_PLAYER))
+                val = min(val, alpha_beta_pruning(child, alpha, beta))
                 beta = min(beta, val)
 
                 if beta <= alpha:
@@ -188,18 +174,17 @@ def win_the_game(start_grid):
 
             return val
 
-    # We start from the most left node
-    # starting_node = tree[list(tree.keys())[-1]][0]
-    # print(starting_node)
-    # print(starting_node.grid)
+    root = Node(grid=start_grid, player=MAX_PLAYER)
+
     infinity = math.inf
-    result = alpha_beta_pruning(
+
+    alpha_beta_pruning(
         node=root,
-        alpha=infinity,
-        beta=-infinity,
-        player=root.player
+        alpha=-infinity,
+        beta=infinity
     )
-    print(result)
+
+    return solution
 
 
 if __name__ == '__main__':
@@ -207,21 +192,23 @@ if __name__ == '__main__':
     Choose an entry point:
     - Start from empty board: 1
     - Start from given board: 2
-    """
+
+    Option: """
 
     game = input(start_prompt)
 
     if int(game) == 1:
-        print("Starting from empty board...\n")
+        print("\nStarting from empty board...\n")
         start_grid = generate_empty_grid()
 
     elif int(game) == 2:
         file_name = input('Path to file containg the board: ')
-        print("Starting from {} ...\n".format(file_name))
+        print("\nStarting from {} ...\n".format(file_name))
         start_grid = generate_grid_from_file(file_name=file_name)
 
     else:
         raise ValueError('Pick valid entry point!')
 
-    result = win_the_game(start_grid=start_grid)
-    print(result)
+    solution = win_the_game(start_grid=start_grid)
+
+    print('\n'.join([str(node.grid) for node in solution]))
