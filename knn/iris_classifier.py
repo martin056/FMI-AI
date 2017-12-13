@@ -10,7 +10,8 @@ class IrisKnnClassifier:
         self.rand_split = rand_split
         self.k = k
 
-        self.predictions = None
+        self._predictions = None
+        self._mistakes = []
 
         self.load_data()
 
@@ -64,7 +65,7 @@ class IrisKnnClassifier:
         for x, y in zip(vec_x, vec_y):
             distance += pow((x - y), 2)
 
-        return math.sqrt(distance)
+        return 1.0 / (math.sqrt(distance) + 1e-4)
 
     def get_k_nearest_neighbours(self, instance):
         distances = []
@@ -73,7 +74,7 @@ class IrisKnnClassifier:
             dist = self.calculate_distance(train_instance, instance)
             distances.append((dist, i))
 
-        distances.sort(reverse=True, key=lambda t: t[0])
+        distances.sort(key=lambda t: t[0], reverse=True)
         return distances[:self.k]
 
     def get_prediction_for(self, instance):
@@ -91,26 +92,32 @@ class IrisKnnClassifier:
         return prediction[0][0]
 
     def predict(self):
-        self.predictions = [self.get_prediction_for(instance) for instance in self.test_set_x]
+        self._predictions = [self.get_prediction_for(instance) for instance in self.test_set_x]
 
     def score(self):
-        if self.predictions is None:
+        if self._predictions is None:
             raise ValueError('Call .predict() to use .score()')
 
         correct = 0
 
-        import ipdb; ipdb.set_trace()
-        for prediction, real_value in zip(self.predictions, self.test_set_y):
+        for prediction, real_value in zip(self._predictions, self.test_set_y):
             if prediction == real_value:
-                correct += 0
+                correct += 1
+            else:
+                self._mistakes.append('Predicted: {}. Real value: {}'.format(prediction, real_value))
 
-        accuracy = (correct / float(len(self.train_set_y))) * 100.0
+        accuracy = (correct / float(len(self.test_set_y))) * 100.0
 
         return round(accuracy, 2)
+
+    @property
+    def _score(self):
+        return self.score()
 
 
 if __name__ == '__main__':
     clf = IrisKnnClassifier()
     clf.predict()
 
-    print(clf.score())
+    print(clf._score)
+    print(clf._mistakes)
